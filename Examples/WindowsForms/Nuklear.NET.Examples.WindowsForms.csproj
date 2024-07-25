@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\Nuklear.NET.Examples.Shared.csproj" />
+    <ProjectReference Include="..\..\Nuklear.NET\Nuklear.NET.csproj" />
+  </ItemGroup>
+</Project>

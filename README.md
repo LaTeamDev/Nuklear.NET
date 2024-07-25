@@ -1,32 +1,19 @@
-# NuklearDotNet
-LICENSE: Dual-licensed under MIT and The Unlicense. Your choice.
-
+# Nuklear.NET
 .NET binding for the Nuklear immediate mode GUI
-https://github.com/vurtun/nuklear
+https://github.com/Immediate-Mode-UI/Nuklear
 
-NuklearSharp ( https://github.com/leafi/NuklearSharp ) was my original inspiration for this.
+NuklearSharp ( https://github.com/leafi/NuklearSharp ) was the original inspiration for this.
 
 No original nuklear source files were modified. A project was created with some support code 
 to build Nuklear.dll (x64) with all API functions exported and ready to be used from .NET
 
 Updating should be as easy as updating the submodule and rebuilding the project.
 
-Currently this binding is used in my game engine project, so i implement stuff as i need it.
-https://github.com/sbarisic/libTech
-
 Contributions welcome.
-
-# Implemented devices
-
-* Raylib
-In the example project, this binding was directly included
-https://github.com/ChrisDill/Raylib-cs
-
-* SFML
 
 # Screenshots
 
-![alt text](https://raw.githubusercontent.com/sbarisic/NuklearDotNet/master/screenshots/a.png "Hello World!")
+![](https://raw.githubusercontent.com/LaTeamDev/Nuklear.NET/master/screenshots/a.png "Hello World!")
 
 # Code samples
 
