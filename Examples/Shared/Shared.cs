@@ -10,7 +10,7 @@ namespace Nuklear.NET.Examples {
 		static StringBuilder InputBuffer = new StringBuilder();
 
 		public static void Init(NuklearDevice Dev) {
-			NuklearAPI.Init(Dev);
+			NuklearApi.Init(Dev);
 
 			CalcA = new NuklearCalculator("Calc A", 50, 50);
 			CalcB = new NuklearCalculator("Calc B", 300, 50);
@@ -20,9 +20,9 @@ namespace Nuklear.NET.Examples {
 		}
 
 		public static void DrawLoop(float DeltaTime = 0) {
-			NuklearAPI.SetDeltaTime(DeltaTime);
+			NuklearApi.SetDeltaTime(DeltaTime);
 
-			NuklearAPI.Frame(() => {
+			NuklearApi.Frame(() => {
 				if (CalcA.Open)
 					CalcA.Calculator();
 
@@ -36,30 +36,30 @@ namespace Nuklear.NET.Examples {
 
 
 		static void TestWindow(float X, float Y) {
-			const NkPanelFlags Flags = NkPanelFlags.BorderTitle | NkPanelFlags.MovableScalable | NkPanelFlags.Minimizable | NkPanelFlags.ScrollAutoHide;
+			const NkPanelFlags Flags = NkPanelFlags.Border | NkPanelFlags.Scalable | NkPanelFlags.Movable | NkPanelFlags.Title | NkPanelFlags.Minimizable | NkPanelFlags.ScrollAutoHide;
 
-			NuklearAPI.Window("Test Window", X, Y, 200, 200, Flags, () => {
-				NuklearAPI.LayoutRowDynamic(35);
+			NuklearApi.Window("Test Window", X, Y, 200, 200, Flags, () => {
+				NuklearApi.LayoutRowDynamic(35);
 
 				for (int i = 0; i < 5; i++)
-					if (NuklearAPI.ButtonLabel("Some Button " + i))
+					if (NuklearApi.ButtonLabel("Some Button " + i))
 						Console.WriteLine("You pressed button " + i);
 
-				if (NuklearAPI.ButtonLabel("Exit"))
+				if (NuklearApi.ButtonLabel("Exit"))
 					Environment.Exit(0);
 			});
 		}
 
 		static void ConsoleThing(int X, int Y, StringBuilder OutBuffer, StringBuilder InBuffer) {
-			const NkPanelFlags Flags = NkPanelFlags.BorderTitle | NkPanelFlags.MovableScalable | NkPanelFlags.Minimizable;
+			const NkPanelFlags Flags = NkPanelFlags.Border | NkPanelFlags.Title | NkPanelFlags.Movable| NkPanelFlags.Scalable | NkPanelFlags.Minimizable;
 
-			NuklearAPI.Window("Console", X, Y, 300, 300, Flags, () => {
-				NkRect Bounds = NuklearAPI.WindowGetBounds();
-				NuklearAPI.LayoutRowDynamic(Bounds.H - 85);
-				NuklearAPI.EditString(NkEditTypes.Editor | (NkEditTypes)(NkEditFlags.GotoEndOnActivate), OutBuffer);
+			NuklearApi.Window("Console", X, Y, 300, 300, Flags, () => {
+				NkRect Bounds = NuklearApi.WindowGetBounds();
+				NuklearApi.LayoutRowDynamic(Bounds.H - 85);
+				NuklearApi.EditString(NkEditTypes.Editor | (NkEditTypes)(NkEditFlags.GotoEndOnActivate), OutBuffer);
 
-				NuklearAPI.LayoutRowDynamic();
-				if (NuklearAPI.EditString(NkEditTypes.Field, InBuffer).HasFlag(NkEditEvents.Active) && NuklearAPI.IsKeyPressed(NkKeys.Enter)) {
+				NuklearApi.LayoutRowDynamic();
+				if ((NuklearApi.EditString(NkEditTypes.Field, InBuffer)?.HasFlag(NkEditEvents.Active) ?? false) && NuklearApi.IsKeyPressed(NkKeys.Enter)) {
 					string Txt = InBuffer.ToString().Trim();
 					InBuffer.Clear();
 
@@ -117,19 +117,19 @@ namespace Nuklear.NET.Examples {
 				bool Solve = false;
 				string BufferStr;
 
-				NuklearAPI.Window(Name, X, Y, 180, 250, F, () => {
-					NuklearAPI.LayoutRowDynamic(35, 1);
+				NuklearApi.Window(Name, X, Y, 180, 250, F, () => {
+					NuklearApi.LayoutRowDynamic(35, 1);
 
 					Buffer.Clear();
 					Buffer.AppendFormat("{0:0.00}", Current);
 
-					NuklearAPI.EditString(NkEditTypes.Simple, Buffer, (ref nk_text_edit TextBox, uint Rune) => {
+					NuklearApi.EditString(NkEditTypes.Simple, Buffer, (ref NkTextEdit TextBox, uint Rune) => {
 						char C = (char)Rune;
 
 						if (char.IsNumber(C))
-							return 1;
+							return true;
 
-						return 0;
+						return false;
 					});
 
 					BufferStr = Buffer.ToString().Trim();
@@ -137,22 +137,22 @@ namespace Nuklear.NET.Examples {
 						if (float.TryParse(BufferStr, out float CurFloat))
 							Current = CurFloat;
 
-					NuklearAPI.LayoutRowDynamic(35, 4);
+					NuklearApi.LayoutRowDynamic(35, 4);
 					for (int i = 0; i < 16; i++) {
 						if (i == 12) {
-							if (NuklearAPI.ButtonLabel("C")) {
+							if (NuklearApi.ButtonLabel("C")) {
 								A = B = 0;
 								Op = ' ';
 								Set = false;
 								CurrentThingy = CurrentThing.A;
 							}
 
-							if (NuklearAPI.ButtonLabel("0")) {
+							if (NuklearApi.ButtonLabel("0")) {
 								Current = Current * 10;
 								Op = ' ';
 							}
 
-							if (NuklearAPI.ButtonLabel("=")) {
+							if (NuklearApi.ButtonLabel("=")) {
 								Solve = true;
 								Prev = Op;
 								Op = ' ';
@@ -160,11 +160,11 @@ namespace Nuklear.NET.Examples {
 						} else if (((i + 1) % 4) != 0) {
 							int NumIdx = (i / 4) * 3 + i % 4;
 
-							if (NumIdx < Numbers.Length && NuklearAPI.ButtonText(Numbers[NumIdx])) {
+							if (NumIdx < Numbers.Length && NuklearApi.ButtonText(Numbers[NumIdx])) {
 								Current = Current * 10 + int.Parse(Numbers[NumIdx].ToString());
 								Set = false;
 							}
-						} else if (NuklearAPI.ButtonText(Ops[i / 4])) {
+						} else if (NuklearApi.ButtonText(Ops[i / 4])) {
 							if (!Set) {
 								if (CurrentThingy != CurrentThing.B)
 									CurrentThingy = CurrentThing.B;
@@ -198,7 +198,7 @@ namespace Nuklear.NET.Examples {
 					}
 				});
 
-				if (NuklearAPI.WindowIsClosed(Name) || NuklearAPI.WindowIsHidden(Name))
+				if (NuklearApi.WindowIsClosed(Name) || NuklearApi.WindowIsHidden(Name))
 					Open = false;
 			}
 		}

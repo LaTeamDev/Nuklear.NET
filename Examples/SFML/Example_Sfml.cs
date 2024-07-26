@@ -164,7 +164,7 @@ namespace Nuklear.NET.Examples.SFML
 
             float Dt = 0.1f;
 
-            NuklearAPI.QueueForceUpdate();
+            NuklearApi.QueueForceUpdate();
             while (RWind.IsOpen)
             {
 

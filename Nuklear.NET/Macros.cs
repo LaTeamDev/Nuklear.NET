@@ -1,25 +1,25 @@
 ﻿using System.Runtime.InteropServices;
 
-namespace Nuklear.NET {
-	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-	public unsafe delegate void nk_foreach_action(nk_command* c);
+namespace Nuklear.NET; 
 
-	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-	public unsafe delegate void nk_draw_foreach_action(nk_draw_command* c);
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+public unsafe delegate void NkForeachAction(NkCommand* c);
 
-	public static unsafe partial class Nuklear {
-		public static void nk_foreach(nk_context* ctx, nk_foreach_action A) {
-			nk_command* c = null;
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+public unsafe delegate void NkDrawForeachAction(NkDrawCommand* c);
 
-			for (c = nk__begin(ctx); c != null; c = nk__next(ctx, c))
-				A(c);
-		}
+public static unsafe partial class Nk {
+    public static void Foreach(NkContext* ctx, NkForeachAction a) {
+        NkCommand* c = null;
 
-		public static void nk_draw_foreach(nk_context* ctx, nk_buffer* b, nk_draw_foreach_action A) {
-			nk_draw_command* Cmd = null;
+        for (c = _begin(ctx); c != null; c = _next(ctx, c))
+            a(c);
+    }
 
-			for (Cmd = nk__draw_begin(ctx, b); Cmd != null; Cmd = nk__draw_next(Cmd, b, ctx))
-				A(Cmd);
-		}
-	}
+    public static void DrawForeach(NkContext* ctx, NkBuffer* b, NkDrawForeachAction a) {
+        NkDrawCommand* cmd = null;
+
+        for (cmd = _draw_begin(ctx, b); cmd != null; cmd = _draw_next(cmd, b, ctx))
+            a(cmd);
+    }
 }

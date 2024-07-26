@@ -1,0 +1,17 @@
+using System.Runtime.CompilerServices;
+
+namespace Nuklear.NET;
+
+public partial struct NkConfigStackFlags
+{
+    public int Head;
+
+    [NativeTypeName("struct nk_config_stack_flags_element[32]")]
+    public ElementsEFixedBuffer Elements;
+
+    [InlineArray(32)]
+    public partial struct ElementsEFixedBuffer
+    {
+        public NkConfigStackFlagsElement E0;
+    }
+}

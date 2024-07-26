@@ -109,7 +109,7 @@ namespace Nuklear.NET.Examples.Raylib {
 			if (Raylib_cs.Raylib.IsWindowResized()) {
 				Raylib_cs.Raylib.UnloadRenderTexture(RT);
 				CreateRT();
-				NuklearAPI.QueueForceUpdate();
+				NuklearApi.QueueForceUpdate();
 			}
 
 			Raylib_cs.Raylib.DrawTextureRec(RT.Texture, new Rectangle(0, RT.Texture.Height, RT.Texture.Width, -RT.Texture.Height), Vector2.Zero, Color.White);
@@ -133,7 +133,7 @@ namespace Nuklear.NET.Examples.Raylib {
 			int LastMouseX = 0;
 			int LastMouseY = 0;
 
-			NuklearAPI.QueueForceUpdate();
+			NuklearApi.QueueForceUpdate();
 			while (!Raylib_cs.Raylib.WindowShouldClose()) {
 
 				Vector2 MousePos = Raylib_cs.Raylib.GetMousePosition();
