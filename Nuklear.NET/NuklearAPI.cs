@@ -5,130 +5,93 @@ using System.Text;
 
 namespace Nuklear.NET {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public unsafe delegate void FontStashAction(IntPtr Atlas);
+    public unsafe delegate void FontStashAction(IntPtr atlas);
 
-    public static unsafe class NuklearAPI {
-        public static nk_context* Ctx;
+    public static unsafe class NuklearApi {
+        public static NkContext* Ctx;
         public static NuklearDevice Dev;
 
-        static nk_allocator* Allocator;
-        static nk_font_atlas* FontAtlas;
-        static nk_draw_null_texture* NullTexture;
-        static nk_convert_config* ConvertCfg;
+        static NkAllocator* _allocator;
+        static NkFontAtlas* _fontAtlas;
+        static NkDrawNullTexture* _nullTexture;
+        static NkConvertConfig* _convertCfg;
 
-        static nk_buffer* Commands, Vertices, Indices;
-        static byte[] LastMemory;
+        static NkBuffer* _commands, _vertices, _indices;
+        static byte[] _lastMemory;
 
-        static nk_draw_vertex_layout_element* VertexLayout;
-        static nk_plugin_alloc_t Alloc;
-        static nk_plugin_free_t Free;
+        static NkDrawVertexLayoutElement* _vertexLayout;
 
-        static IFrameBuffered FrameBuffered;
+        private delegate IntPtr NkAlloc(NkHandle handle, IntPtr old, IntPtr size);
+        static NkAlloc _alloc;
+        private delegate void NkFree(NkHandle handle, IntPtr ptr);
+        static NkFree _free;
 
-        static bool ForceUpdateQueued;
+        static IFrameBuffered? _frameBuffered;
 
-        static bool Initialized = false;
-        static bool ForceDirty = false;
+        static bool _forceUpdateQueued;
 
-        // TODO: Support swapping this, native memcmp is the fastest so it's used here
-        [DllImport("msvcrt", EntryPoint = "memcmp", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
-        public static extern int MemCmp(IntPtr A, IntPtr B, IntPtr Count);
+        static bool _initialized = false;
+        static bool _forceDirty = false;
 
-        [DllImport("msvcrt", EntryPoint = "memcpy", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
-        public static extern void Memcpy(IntPtr A, IntPtr B, IntPtr Count);
-
-        [DllImport("msvcrt", EntryPoint = "memset", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
-        public static extern void Memset(IntPtr A, int Value, IntPtr Count);
-
-        [DllImport("msvcrt", EntryPoint = "malloc", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
-        public static extern IntPtr Malloc(IntPtr size);
-
-        [DllImport("msvcrt", EntryPoint = "free", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
-        public static extern void StdFree(IntPtr P);
-
-        static IntPtr ManagedAlloc(IntPtr Size, bool ClearMem = true) {
-            /*IntPtr Mem = Marshal.AllocHGlobal(Size);
-
-			if (ClearMem) {
-				for (int i = 0; i < (int)Size; i++)
-					Marshal.WriteByte(Mem, i, 0);
-			}
-
-			return Mem;*/
-
-            IntPtr Mem = Malloc(Size);
-
-            if (ClearMem)
-                Memset(Mem, 0, Size);
-
-            if (Mem == IntPtr.Zero)
-                throw new Exception("Cannot allocate memory?");
-
-            return Mem;
+        private static bool MemCmp(void* a, void* b, int count) {
+            var a1 = new ReadOnlySpan<byte>(a, count);
+            var a2 = new ReadOnlySpan<byte>(b, count);
+            return a1.SequenceEqual(a2);
         }
 
-        static IntPtr ManagedAlloc(int Size) {
-            return ManagedAlloc(new IntPtr(Size));
-        }
+        static void FontStash(FontStashAction a = null) {
+            Nk.font_atlas_init(_fontAtlas, _allocator);
+            Nk.font_atlas_begin(_fontAtlas);
 
-        static void ManagedFree(IntPtr Mem) {
-            //Marshal.FreeHGlobal(Mem);
-            StdFree(Mem);
-        }
+            a?.Invoke(new IntPtr(_fontAtlas));
 
-        static void FontStash(FontStashAction A = null) {
-            Nuklear.nk_font_atlas_init(FontAtlas, Allocator);
-            Nuklear.nk_font_atlas_begin(FontAtlas);
+            int w, h;
+            var image = (IntPtr)Nk.font_atlas_bake(_fontAtlas, &w, &h, NkFontAtlasFormat.Rgba32);
+            int texHandle = Dev.CreateTextureHandle(w, h, image);
 
-            A?.Invoke(new IntPtr(FontAtlas));
+            Nk.font_atlas_end(_fontAtlas, Nk.handle_id(texHandle), _nullTexture);
 
-            int W, H;
-            IntPtr Image = Nuklear.nk_font_atlas_bake(FontAtlas, &W, &H, nk_font_atlas_format.NK_FONT_ATLAS_RGBA32);
-            int TexHandle = Dev.CreateTextureHandle(W, H, Image);
-
-            Nuklear.nk_font_atlas_end(FontAtlas, Nuklear.nk_handle_id(TexHandle), NullTexture);
-
-            if (FontAtlas->default_font != null)
-                Nuklear.nk_style_set_font(Ctx, &FontAtlas->default_font->handle);
+            if (_fontAtlas->DefaultFont != null)
+                Nk.style_set_font(Ctx, &_fontAtlas->DefaultFont->Handle);
         }
 
 
         public static bool HandleInput() {
-            bool HasInput = FrameBuffered == null || Dev.Events.Count > 0;
+            bool hasInput = _frameBuffered == null || Dev.Events.Count > 0;
 
-            if (HasInput) {
-                Nuklear.nk_input_begin(Ctx);
+            if (hasInput) {
+                Nk.input_begin(Ctx);
 
                 while (Dev.Events.Count > 0) {
-                    NuklearEvent E = Dev.Events.Dequeue();
+                    var e = Dev.Events.Dequeue();
 
-                    switch (E.EvtType) {
+                    switch (e.EvtType) {
                         case NuklearEvent.EventType.MouseButton:
-                            Nuklear.nk_input_button(Ctx, (nk_buttons)E.MButton, E.X, E.Y, E.Down ? 1 : 0);
+                            Nk.input_button(Ctx, (NkButtons)e.MButton, e.X, e.Y, e.Down);
                             break;
 
                         case NuklearEvent.EventType.MouseMove:
-                            Nuklear.nk_input_motion(Ctx, E.X, E.Y);
+                            Nk.input_motion(Ctx, e.X, e.Y);
                             break;
 
                         case NuklearEvent.EventType.Scroll:
-                            Nuklear.nk_input_scroll(Ctx, new nk_vec2() { x = E.ScrollX, y = E.ScrollY });
+                            Nk.input_scroll(Ctx, new NkVec2() { X = e.ScrollX, Y = e.ScrollY });
                             break;
 
                         case NuklearEvent.EventType.Text:
-                            for (int i = 0; i < E.Text.Length; i++) {
-                                if (!char.IsControl(E.Text[i]))
-                                    Nuklear.nk_input_unicode(Ctx, E.Text[i]);
+                            for (int i = 0; i < e.Text.Length; i++) {
+                                if (!char.IsControl(e.Text[i]))
+                                    Nk.input_unicode(Ctx, e.Text[i]);
                             }
 
                             break;
 
                         case NuklearEvent.EventType.KeyboardKey:
-                            Nuklear.nk_input_key(Ctx, E.Key, E.Down ? 1 : 0);
+                            Nk.input_key(Ctx, e.Key, e.Down);
                             break;
 
                         case NuklearEvent.EventType.ForceUpdate:
-                            ForceDirty = true;
+                            _forceDirty = true;
                             break;
 
                         default:
@@ -136,336 +99,355 @@ namespace Nuklear.NET {
                     }
                 }
 
-                Nuklear.nk_input_end(Ctx);
+                Nk.input_end(Ctx);
             }
 
-            return HasInput;
+            return hasInput;
         }
 
-        public static void Render(bool HadInput) {
-            if (HadInput) {
-                bool Dirty = true;
+        public static void Render(bool hadInput) {
+            if (hadInput) {
+                bool dirty = true;
 
-                if (FrameBuffered != null) {
-                    Dirty = false;
+                if (_frameBuffered != null) {
+                    dirty = false;
 
-                    IntPtr MemoryBuffer = Nuklear.nk_buffer_memory(&Ctx->memory);
-                    if ((int)Ctx->memory.allocated == 0)
-                        Dirty = true;
+                    void* memoryBuffer = Nk.buffer_memory(&Ctx->Memory);
+                    if ((int)Ctx->Memory.Allocated == 0)
+                        dirty = true;
 
-                    if (!Dirty) {
-                        if (LastMemory == null || LastMemory.Length < (int)Ctx->memory.allocated) {
-                            LastMemory = new byte[(int)Ctx->memory.allocated];
-                            Dirty = true;
+                    if (!dirty) {
+                        if (_lastMemory == null || _lastMemory.Length < (int)Ctx->Memory.Allocated) {
+                            _lastMemory = new byte[(int)Ctx->Memory.Allocated];
+                            dirty = true;
                         }
                     }
 
-                    if (!Dirty) {
-                        fixed (byte* LastMemoryPtr = LastMemory)
-                            if (MemCmp(new IntPtr(LastMemoryPtr), MemoryBuffer, Ctx->memory.allocated) != 0) {
-                                Dirty = true;
-                                Marshal.Copy(MemoryBuffer, LastMemory, 0, (int)Ctx->memory.allocated);
+                    if (!dirty) {
+                        fixed (byte* lastMemoryPtr = _lastMemory)
+                            if (!MemCmp(lastMemoryPtr, memoryBuffer, (int)Ctx->Memory.Allocated)) {
+                                dirty = true;
+                                Marshal.Copy((IntPtr)memoryBuffer, _lastMemory, 0, (int)Ctx->Memory.Allocated);
                             }
                     }
                 }
 
-                if (Dirty || ForceDirty) {
-                    ForceDirty = false;
+                if (dirty || _forceDirty) {
+                    _forceDirty = false;
 
-                    NkConvertResult R = (NkConvertResult)Nuklear.nk_convert(Ctx, Commands, Vertices, Indices, ConvertCfg);
-                    if (R != NkConvertResult.Success)
-                        throw new Exception(R.ToString());
+                    NkConvertResult r = (NkConvertResult)Nk.convert(Ctx, _commands, _vertices, _indices, _convertCfg);
+                    if (r != NkConvertResult.Success)
+                        throw new Exception(r.ToString());
 
-                    NkVertex[] NkVerts = new NkVertex[(int)Vertices->needed / sizeof(NkVertex)];
-                    NkVertex* VertsPtr = (NkVertex*)Vertices->memory.ptr;
+                    NkVertex[] nkVerts = new NkVertex[(int)_vertices->Needed / sizeof(NkVertex)];
+                    NkVertex* vertsPtr = (NkVertex*)_vertices->Memory.Ptr;
 
-                    for (int i = 0; i < NkVerts.Length; i++) {
+                    for (int i = 0; i < nkVerts.Length; i++) {
                         //NkVertex* V = &VertsPtr[i];
                         //NkVerts[i] = new NkVertex() { Position = new NkVector2f() { X = (int)V->Position.X, Y = (int)V->Position.Y }, Color = V->Color, UV = V->UV };
 
-                        NkVerts[i] = VertsPtr[i];
+                        nkVerts[i] = vertsPtr[i];
                     }
 
-                    ushort[] NkIndices = new ushort[(int)Indices->needed / sizeof(ushort)];
-                    ushort* IndicesPtr = (ushort*)Indices->memory.ptr;
-                    for (int i = 0; i < NkIndices.Length; i++)
-                        NkIndices[i] = IndicesPtr[i];
+                    ushort[] nkIndices = new ushort[(int)_indices->Needed / sizeof(ushort)];
+                    ushort* indicesPtr = (ushort*)_indices->Memory.Ptr;
+                    for (int i = 0; i < nkIndices.Length; i++)
+                        nkIndices[i] = indicesPtr[i];
 
-                    Dev.SetBuffer(NkVerts, NkIndices);
-                    FrameBuffered?.BeginBuffering();
+                    Dev.SetBuffer(nkVerts, nkIndices);
+                    _frameBuffered?.BeginBuffering();
 
-                    uint Offset = 0;
+                    uint offset = 0;
                     Dev.BeginRender();
 
-                    Nuklear.nk_draw_foreach(Ctx, Commands, (Cmd) => {
-                        if (Cmd->elem_count == 0)
+                    Nk.DrawForeach(Ctx, _commands, (cmd) => {
+                        if (cmd->ElemCount == 0)
                             return;
 
-                        Dev.Render(Cmd->userdata, Cmd->texture.id, Cmd->clip_rect, Offset, Cmd->elem_count);
-                        Offset += Cmd->elem_count;
+                        Dev.Render(cmd->Userdata, cmd->Texture.id, cmd->ClipRect, offset, cmd->ElemCount);
+                        offset += cmd->ElemCount;
                     });
 
                     Dev.EndRender();
-                    FrameBuffered?.EndBuffering();
+                    _frameBuffered?.EndBuffering();
                 }
 
-                nk_draw_list* list = &Ctx->draw_list;
+                var list = &Ctx->DrawList;
                 if (list != null) {
-                    if (list->buffer != null)
-                        Nuklear.nk_buffer_clear(list->buffer);
+                    if (list->Buffer != null)
+                        Nk.buffer_clear(list->Buffer);
 
-                    if (list->vertices != null)
-                        Nuklear.nk_buffer_clear(list->vertices);
+                    if (list->Vertices != null)
+                        Nk.buffer_clear(list->Vertices);
 
-                    if (list->elements != null)
-                        Nuklear.nk_buffer_clear(list->elements);
+                    if (list->Elements != null)
+                        Nk.buffer_clear(list->Elements);
                 }
 
-                Nuklear.nk_clear(Ctx);
+                Nk.clear(Ctx);
             }
 
-            FrameBuffered?.RenderFinal();
+            _frameBuffered?.RenderFinal();
         }
 
         //public  NuklearAPI(NuklearDevice Device) {
-        public static void Init(NuklearDevice Device) {
-            if (Initialized)
+        public static void Init(NuklearDevice device) {
+            if (_initialized)
                 throw new InvalidOperationException("NuklearAPI.Init is called twice");
 
-            Initialized = true;
+            _initialized = true;
 
-            Dev = Device;
+            Dev = device;
 
-            if (Device.EnableFrameBuffered)
-                FrameBuffered = Device as IFrameBuffered;
+            if (device.EnableFrameBuffered)
+                _frameBuffered = device as IFrameBuffered;
             else
-                FrameBuffered = null;
+                _frameBuffered = null;
 
 
             // TODO: Free these later
-            Ctx = (nk_context*)ManagedAlloc(sizeof(nk_context));
-            Allocator = (nk_allocator*)ManagedAlloc(sizeof(nk_allocator));
-            FontAtlas = (nk_font_atlas*)ManagedAlloc(sizeof(nk_font_atlas));
-            NullTexture = (nk_draw_null_texture*)ManagedAlloc(sizeof(nk_draw_null_texture));
-            ConvertCfg = (nk_convert_config*)ManagedAlloc(sizeof(nk_convert_config));
-            Commands = (nk_buffer*)ManagedAlloc(sizeof(nk_buffer));
-            Vertices = (nk_buffer*)ManagedAlloc(sizeof(nk_buffer));
-            Indices = (nk_buffer*)ManagedAlloc(sizeof(nk_buffer));
+            var a = Marshal.AllocHGlobal(Marshal.SizeOf<NkContext>());
+            Ctx = (NkContext*)a;
+            _allocator = (NkAllocator*)Marshal.AllocHGlobal(Marshal.SizeOf<NkAllocator>());
+            _fontAtlas = (NkFontAtlas*)Marshal.AllocHGlobal(Marshal.SizeOf<NkFontAtlas>());
+            _nullTexture = (NkDrawNullTexture*)Marshal.AllocHGlobal(Marshal.SizeOf<NkDrawNullTexture>());
+            _convertCfg = (NkConvertConfig*)Marshal.AllocHGlobal(Marshal.SizeOf<NkConvertConfig>());
+            _commands = (NkBuffer*)Marshal.AllocHGlobal(Marshal.SizeOf<NkBuffer>());
+            _vertices = (NkBuffer*)Marshal.AllocHGlobal(Marshal.SizeOf<NkBuffer>());
+            _indices = (NkBuffer*)Marshal.AllocHGlobal(Marshal.SizeOf<NkBuffer>());
 
-            VertexLayout = (nk_draw_vertex_layout_element*)ManagedAlloc(sizeof(nk_draw_vertex_layout_element) * 4);
-            VertexLayout[0] = new nk_draw_vertex_layout_element(nk_draw_vertex_layout_attribute.NK_VERTEX_POSITION, nk_draw_vertex_layout_format.NK_FORMAT_FLOAT,
-                Marshal.OffsetOf(typeof(NkVertex), nameof(NkVertex.Position)));
-            VertexLayout[1] = new nk_draw_vertex_layout_element(nk_draw_vertex_layout_attribute.NK_VERTEX_TEXCOORD, nk_draw_vertex_layout_format.NK_FORMAT_FLOAT,
-                Marshal.OffsetOf(typeof(NkVertex), nameof(NkVertex.UV)));
-            VertexLayout[2] = new nk_draw_vertex_layout_element(nk_draw_vertex_layout_attribute.NK_VERTEX_COLOR, nk_draw_vertex_layout_format.NK_FORMAT_R8G8B8A8,
-                Marshal.OffsetOf(typeof(NkVertex), nameof(NkVertex.Color)));
-            VertexLayout[3] = nk_draw_vertex_layout_element.NK_VERTEX_LAYOUT_END;
+            _vertexLayout = (NkDrawVertexLayoutElement*)Marshal.AllocHGlobal(Marshal.SizeOf<NkDrawVertexLayoutElement>()* 4);
+            _vertexLayout[0] = new NkDrawVertexLayoutElement
+            {
+                Attribute = NkDrawVertexLayoutAttribute.Position, 
+                Format = NkDrawVertexLayoutFormat.Float,
+                Offset = (ulong)Marshal.OffsetOf(typeof(NkVertex), nameof(NkVertex.Position))
+            };
+            _vertexLayout[1] = new NkDrawVertexLayoutElement
+            {
+                Attribute = NkDrawVertexLayoutAttribute.Texcoord, 
+                Format = NkDrawVertexLayoutFormat.Float,
+                Offset = (ulong)Marshal.OffsetOf(typeof(NkVertex), nameof(NkVertex.UV))
+            };
+            _vertexLayout[2] = new NkDrawVertexLayoutElement
+            {
+                Attribute = NkDrawVertexLayoutAttribute.Color, 
+                Format = NkDrawVertexLayoutFormat.Float,
+                Offset = (ulong)Marshal.OffsetOf(typeof(NkVertex), nameof(NkVertex.Color))
+            };
+            _vertexLayout[3] = new NkDrawVertexLayoutElement {
+                Attribute = NkDrawVertexLayoutAttribute.AttributeCount,
+                Format = NkDrawVertexLayoutFormat.Count,
+                Offset = 0
+            };
 
-            Alloc = (Handle, Old, Size) => ManagedAlloc(Size);
-            Free = (Handle, Old) => ManagedFree(Old);
+            _alloc = (handle, old, size) => Marshal.AllocHGlobal(size);
+            _free = (handle, old) => Marshal.FreeHGlobal(old);
 
-            //GCHandle.Alloc(Alloc);
-            //GCHandle.Alloc(Free);
+            _allocator->Alloc = (delegate* unmanaged[Cdecl]<NkHandle, void*, ulong, void*>)Marshal.GetFunctionPointerForDelegate(_alloc);
+            _allocator->Free = (delegate* unmanaged[Cdecl]<NkHandle, void*, void>)Marshal.GetFunctionPointerForDelegate(_free);
 
-            Allocator->alloc_nkpluginalloct = Marshal.GetFunctionPointerForDelegate(Alloc);
-            Allocator->free_nkpluginfreet = Marshal.GetFunctionPointerForDelegate(Free);
-
-            Nuklear.nk_init(Ctx, Allocator, null);
+            Nk.init(Ctx, _allocator, null);
 
             Dev.Init();
             FontStash(Dev.FontStash);
 
-            ConvertCfg->shape_AA = nk_anti_aliasing.NK_ANTI_ALIASING_ON;
-            ConvertCfg->line_AA = nk_anti_aliasing.NK_ANTI_ALIASING_ON;
-            ConvertCfg->vertex_layout = VertexLayout;
-            ConvertCfg->vertex_size = new IntPtr(sizeof(NkVertex));
-            ConvertCfg->vertex_alignment = new IntPtr(1);
-            ConvertCfg->circle_segment_count = 22;
-            ConvertCfg->curve_segment_count = 22;
-            ConvertCfg->arc_segment_count = 22;
-            ConvertCfg->global_alpha = 1.0f;
-            ConvertCfg->null_tex = *NullTexture;
+            _convertCfg->ShapeAa = NkAntiAliasing.On;
+            _convertCfg->LineAa = NkAntiAliasing.On;
+            _convertCfg->VertexLayout = _vertexLayout;
+            _convertCfg->VertexSize = (ulong)sizeof(NkVertex);
+            _convertCfg->VertexAlignment = 1;
+            _convertCfg->CircleSegmentCount = 22;
+            _convertCfg->CurveSegmentCount = 22;
+            _convertCfg->ArcSegmentCount = 22;
+            _convertCfg->GlobalAlpha = 1.0f;
+            _convertCfg->TexNull = *_nullTexture;
 
-            Nuklear.nk_buffer_init(Commands, Allocator, new IntPtr(4 * 1024));
-            Nuklear.nk_buffer_init(Vertices, Allocator, new IntPtr(4 * 1024));
-            Nuklear.nk_buffer_init(Indices, Allocator, new IntPtr(4 * 1024));
+            Nk.buffer_init(_commands, _allocator, 4 * 1024);
+            Nk.buffer_init(_vertices, _allocator, 4 * 1024);
+            Nk.buffer_init(_indices, _allocator, 4 * 1024);
         }
 
-        public static void Frame(Action A) {
-            if (!Initialized)
+        public static void Frame(Action a) {
+            if (!_initialized)
                 throw new InvalidOperationException("You forgot to call NuklearAPI.Init");
 
-            if (ForceUpdateQueued) {
-                ForceUpdateQueued = false;
+            if (_forceUpdateQueued) {
+                _forceUpdateQueued = false;
 
                 Dev?.ForceUpdate();
             }
 
-            bool HasInput;
-            if (HasInput = HandleInput())
-                A();
+            bool hasInput;
+            if (hasInput = HandleInput())
+                a();
 
-            Render(HasInput);
+            Render(hasInput);
         }
 
-        public static void SetDeltaTime(float Delta) {
+        public static void SetDeltaTime(float delta) {
             if (Ctx != null)
-                Ctx->delta_time_Seconds = Delta;
+                Ctx->DeltaTimeSeconds = delta;
         }
 
-        public static bool Window(string Name, string Title, float X, float Y, float W, float H, NkPanelFlags Flags, Action A) {
-            bool Res = true;
-
-            if (Nuklear.nk_begin_titled(Ctx, Name, Title, new NkRect(X, Y, W, H), (uint)Flags) != 0)
-                A?.Invoke();
+        public static bool Window(string name, string title, float x, float y, float w, float h, NkPanelFlags flags, Action a) {
+            bool res = true;
+            
+            if (Nk.begin_titled(Ctx, name, title, new NkRect(x, y, w, h), (uint)flags))
+                a?.Invoke();
             else
-                Res = false;
+                res = false;
 
-            Nuklear.nk_end(Ctx);
-            return Res;
+            Nk.end(Ctx);
+            return res;
         }
 
-        public static bool Window(string Title, float X, float Y, float W, float H, NkPanelFlags Flags, Action A) => Window(Title, Title, X, Y, W, H, Flags, A);
+        public static bool Window(string title, float x, float y, float w, float h, NkPanelFlags flags, Action a) => Window(title, title, x, y, w, h, flags, a);
 
-        public static bool WindowIsClosed(string Name) => Nuklear.nk_window_is_closed(Ctx, Name) != 0;
+        public static bool WindowIsClosed(string name) => Nk.window_is_closed(Ctx, name);
 
-        public static bool WindowIsHidden(string Name) => Nuklear.nk_window_is_hidden(Ctx, Name) != 0;
+        public static bool WindowIsHidden(string name) => Nk.window_is_hidden(Ctx, name);
 
-        public static bool WindowIsCollapsed(string Name) => Nuklear.nk_window_is_collapsed(Ctx, Name) != 0;
+        public static bool WindowIsCollapsed(string name) => Nk.window_is_collapsed(Ctx, name);
 
-        public static bool Group(string Name, string Title, NkPanelFlags Flags, Action A) {
-            bool Res = true;
+        public static bool Group(string name, string title, NkPanelFlags flags, Action a) {
+            bool res = true;
 
-            if (Nuklear.nk_group_begin_titled(Ctx, Name, Title, (uint)Flags) != 0)
-                A?.Invoke();
+            if (Nk.group_begin_titled(Ctx, name, title, (uint)flags))
+                a?.Invoke();
             else
-                Res = false;
+                res = false;
 
-            Nuklear.nk_group_end(Ctx);
-            return Res;
+            Nk.group_end(Ctx);
+            return res;
         }
 
-        public static bool Group(string Name, NkPanelFlags Flags, Action A) => Group(Name, Name, Flags, A);
+        public static bool Group(string name, NkPanelFlags flags, Action a) => Group(name, name, flags, a);
 
-        public static bool ButtonLabel(string Label) {
-            return Nuklear.nk_button_label(Ctx, Label) != 0;
+        public static bool ButtonLabel(string label) {
+            return Nk.button_label(Ctx, label);
         }
 
-        public static bool ButtonText(string Text) {
-            return Nuklear.nk_button_text(Ctx, Text);
+        public static bool ButtonText(string text) {
+            return Nk.button_text(Ctx, text);
         }
 
-        public static bool ButtonText(char Char) => ButtonText(Char.ToString());
+        public static bool ButtonText(char @char) => ButtonText(@char.ToString());
 
-        public static void LayoutRowStatic(float Height, int ItemWidth, int Cols) {
-            Nuklear.nk_layout_row_static(Ctx, Height, ItemWidth, Cols);
+        public static void LayoutRowStatic(float height, int itemWidth, int cols) {
+            Nk.layout_row_static(Ctx, height, itemWidth, cols);
         }
 
-        public static void LayoutRowDynamic(float Height = 0, int Cols = 1) {
-            Nuklear.nk_layout_row_dynamic(Ctx, Height, Cols);
+        public static void LayoutRowDynamic(float height = 0, int cols = 1) {
+            Nk.layout_row_dynamic(Ctx, height, cols);
         }
 
-        public static void Label(string Txt, NkTextAlign TextAlign = (NkTextAlign)NkTextAlignment.NK_TEXT_LEFT) {
-            Nuklear.nk_label(Ctx, Txt, (uint)TextAlign);
+        public static void Label(string txt, NkTextAlign textAlign = (NkTextAlign)NkTextAlignment.Left) {
+            Nk.label(Ctx, txt, (uint)textAlign);
         }
 
-        public static void LabelWrap(string Txt) {
-            //Nuklear.nk_label(Ctx, Txt, (uint)TextAlign);
-            Nuklear.nk_label_wrap(Ctx, Txt);
+        public static void LabelWrap(string txt) {
+            //Nk.label(Ctx, Txt, (uint)TextAlign);
+            //Nk.label_wrap(Ctx, txt); TODO:
         }
 
-        public static void LabelColored(string Txt, NkColor Clr, NkTextAlign TextAlign = (NkTextAlign)NkTextAlignment.NK_TEXT_LEFT) {
-            Nuklear.nk_label_colored(Ctx, Txt, (uint)TextAlign, Clr);
+        public static void LabelColored(string txt, NkColor clr, NkTextAlign textAlign = (NkTextAlign)NkTextAlignment.Left) {
+            //Nk.label_colored(Ctx, txt, (uint)textAlign, clr); TODO:
         }
 
-        public static void LabelColored(string Txt, byte R, byte G, byte B, byte A, NkTextAlign TextAlign = (NkTextAlign)NkTextAlignment.NK_TEXT_LEFT) {
-            //Nuklear.nk_label_colored(Ctx, Txt, (uint)TextAlign, new NkColor() { r = R, g = G, b = B, a = A });
-            LabelColored(Txt, new NkColor() { R = R, G = G, B = B, A = A }, TextAlign);
+        public static void LabelColored(string txt, byte r, byte g, byte b, byte a, NkTextAlign textAlign = (NkTextAlign)NkTextAlignment.Left) {
+            //Nk.label_colored(Ctx, Txt, (uint)TextAlign, new NkColor() { r = R, g = G, b = B, a = A });
+            LabelColored(txt, new NkColor() { R = r, G = g, B = b, A = a }, textAlign);
         }
 
-        public static void LabelColoredWrap(string Txt, NkColor Clr) {
-            Nuklear.nk_label_colored_wrap(Ctx, Txt, Clr);
+        public static void LabelColoredWrap(string txt, NkColor clr) {
+            //Nk.label_colored_wrap(Ctx, txt, clr); TODO:
         }
 
-        public static void LabelColoredWrap(string Txt, byte R, byte G, byte B, byte A) {
-            LabelColoredWrap(Txt, new NkColor() { R = R, G = G, B = B, A = A });
+        public static void LabelColoredWrap(string txt, byte r, byte g, byte b, byte a) {
+            LabelColoredWrap(txt, new NkColor() { R = r, G = g, B = b, A = a });
         }
 
         public static NkRect WindowGetBounds() {
-            return Nuklear.nk_window_get_bounds(Ctx);
+            return Nk.window_get_bounds(Ctx);
         }
 
-        public static NkEditEvents EditString(NkEditTypes EditType, StringBuilder Buffer, nk_plugin_filter_t Filter) {
-            return (NkEditEvents)Nuklear.nk_edit_string_zero_terminated(Ctx, (uint)EditType, Buffer, Buffer.MaxCapacity, Filter);
+        public delegate bool NkPluginFilter(ref NkTextEdit TextEdit, uint unicode);
+        public static NkEditEvents? EditString(NkEditTypes editType, StringBuilder buffer, NkPluginFilter filter) {
+            return null; //TODO:
+            //return (NkEditEvents)Nk.edit_string_zero_terminated(Ctx, (uint)editType, buffer, buffer.MaxCapacity, filter);
         }
 
-        public static NkEditEvents EditString(NkEditTypes EditType, StringBuilder Buffer) {
-            return EditString(EditType, Buffer, (ref nk_text_edit TextBox, uint Rune) => 1);
+        public static NkEditEvents? EditString(NkEditTypes editType, StringBuilder buffer) {
+            return EditString(editType, buffer, (ref NkTextEdit textBox, uint rune) => true);
         }
 
-        public static bool IsKeyPressed(NkKeys Key) {
-            //Nuklear.nk_input_is_key_pressed()
-            return Nuklear.nk_input_is_key_pressed(&Ctx->input, Key) != 0;
+        public static bool IsKeyPressed(NkKeys key) {
+            //Nk.input_is_key_pressed()
+            return Nk.input_is_key_pressed(&Ctx->Input, key);
         }
 
         public static void QueueForceUpdate() {
-            ForceUpdateQueued = true;
+            _forceUpdateQueued = true;
         }
 
-        public static void WindowClose(string Name) {
-            Nuklear.nk_window_close(Ctx, Name);
+        public static void WindowClose(string name) {
+            Nk.window_close(Ctx, name);
         }
 
-        public static void SetClipboardCallback(Action<string> CopyFunc, Func<string> PasteFunc) {
+        public delegate void NkPluginCopy(NkHandle Handle, byte* str, int len);
+        public delegate void NkPluginPaste(NkHandle Handle, ref NkTextEdit str);
+        public static void SetClipboardCallback(Action<string> copyFunc, Func<string> pasteFunc) {
             // TODO: Contains alloc and forget, don't call SetClipboardCallback too many times
 
 
-            nk_plugin_copy_t NkCopyFunc = (Handle, Str, Len) => {
-                byte[] Bytes = new byte[Len];
+            NkPluginCopy nkCopyFunc = (handle, str, len) => {
+                byte[] bytes = new byte[len];
 
-                for (int i = 0; i < Bytes.Length; i++)
-                    Bytes[i] = Str[i];
+                for (int i = 0; i < bytes.Length; i++)
+                    bytes[i] = str[i];
 
-                CopyFunc(Encoding.UTF8.GetString(Bytes));
+                copyFunc(Encoding.UTF8.GetString(bytes));
             };
 
-            nk_plugin_paste_t NkPasteFunc = (NkHandle Handle, ref nk_text_edit TextEdit) => {
-                byte[] Bytes = Encoding.UTF8.GetBytes(PasteFunc());
+            NkPluginPaste nkPasteFunc = (NkHandle handle, ref NkTextEdit textEdit) => {
+                byte[] bytes = Encoding.UTF8.GetBytes(pasteFunc());
 
-                fixed (byte* BytesPtr = Bytes)
-                fixed (nk_text_edit* TextEditPtr = &TextEdit)
-                    Nuklear.nk_textedit_paste(TextEditPtr, BytesPtr, Bytes.Length);
+                //TODO:
+                /*fixed (byte* bytesPtr = bytes)
+                fixed (NkTextEdit* textEditPtr = &textEdit)
+                    Nk.textedit_paste(textEditPtr, bytesPtr, bytes.Length);*/
             };
 
-            GCHandle.Alloc(CopyFunc);
-            GCHandle.Alloc(PasteFunc);
-            GCHandle.Alloc(NkCopyFunc);
-            GCHandle.Alloc(NkPasteFunc);
+            GCHandle.Alloc(copyFunc);
+            GCHandle.Alloc(pasteFunc);
+            GCHandle.Alloc(nkCopyFunc);
+            GCHandle.Alloc(nkPasteFunc);
 
-            Ctx->clip.copyfun_nkPluginCopyT = Marshal.GetFunctionPointerForDelegate(NkCopyFunc);
-            Ctx->clip.pastefun_nkPluginPasteT = Marshal.GetFunctionPointerForDelegate(NkPasteFunc);
+            Ctx->Clip.Copy = (delegate* unmanaged[Cdecl]<NkHandle, sbyte*, int, void>)Marshal.GetFunctionPointerForDelegate(nkCopyFunc);
+            Ctx->Clip.Paste = (delegate* unmanaged[Cdecl]<NkHandle, NkTextEdit*, void>)Marshal.GetFunctionPointerForDelegate(nkPasteFunc);
         }
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct NkVector2f {
+    public struct NkVector2F {
         public float X, Y;
 
-        public NkVector2f(float X, float Y) {
-            this.X = X;
-            this.Y = Y;
+        public NkVector2F(float x, float y) {
+            this.X = x;
+            this.Y = y;
         }
 
         public override string ToString() {
             return string.Format("({0}, {1})", X, Y);
         }
 
-        public static implicit operator Vector2(NkVector2f V) {
-            return new Vector2(V.X, V.Y);
+        public static implicit operator Vector2(NkVector2F v) {
+            return new Vector2(v.X, v.Y);
         }
 
-        public static implicit operator NkVector2f(Vector2 V) {
-            return new NkVector2f(V.X, V.Y);
+        public static implicit operator NkVector2F(Vector2 v) {
+            return new NkVector2F(v.X, v.Y);
         }
     }
 
@@ -480,8 +462,8 @@ namespace Nuklear.NET {
 
     [StructLayout(LayoutKind.Sequential)]
     public struct NkVertex {
-        public NkVector2f Position;
-        public NkVector2f UV;
+        public NkVector2F Position;
+        public NkVector2F UV;
         public NkColor Color;
 
         public override string ToString() {
@@ -527,9 +509,9 @@ namespace Nuklear.NET {
             }
         }
 
-        public abstract void SetBuffer(NkVertex[] VertexBuffer, ushort[] IndexBuffer);
-        public abstract void Render(NkHandle Userdata, int Texture, NkRect ClipRect, uint Offset, uint Count);
-        public abstract int CreateTextureHandle(int W, int H, IntPtr Data);
+        public abstract void SetBuffer(NkVertex[] vertexBuffer, ushort[] indexBuffer);
+        public abstract void Render(NkHandle userdata, int texture, NkRect clipRect, uint offset, uint count);
+        public abstract int CreateTextureHandle(int w, int h, IntPtr data);
 
         public NuklearDevice() {
             Events = new Queue<NuklearEvent>();
@@ -539,7 +521,7 @@ namespace Nuklear.NET {
         public virtual void Init() {
         }
 
-        public virtual void FontStash(IntPtr Atlas) {
+        public virtual void FontStash(IntPtr atlas) {
         }
 
         public virtual void BeginRender() {
@@ -548,24 +530,24 @@ namespace Nuklear.NET {
         public virtual void EndRender() {
         }
 
-        public void OnMouseButton(NuklearEvent.MouseButton MouseButton, int X, int Y, bool Down) {
-            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.MouseButton, MButton = MouseButton, X = X, Y = Y, Down = Down });
+        public void OnMouseButton(NuklearEvent.MouseButton mouseButton, int x, int y, bool down) {
+            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.MouseButton, MButton = mouseButton, X = x, Y = y, Down = down });
         }
 
-        public void OnMouseMove(int X, int Y) {
-            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.MouseMove, X = X, Y = Y });
+        public void OnMouseMove(int x, int y) {
+            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.MouseMove, X = x, Y = y });
         }
 
-        public void OnScroll(float ScrollX, float ScrollY) {
-            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.Scroll, ScrollX = ScrollX, ScrollY = ScrollY });
+        public void OnScroll(float scrollX, float scrollY) {
+            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.Scroll, ScrollX = scrollX, ScrollY = scrollY });
         }
 
-        public void OnText(string Txt) {
-            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.Text, Text = Txt });
+        public void OnText(string txt) {
+            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.Text, Text = txt });
         }
 
-        public void OnKey(NkKeys Key, bool Down) {
-            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.KeyboardKey, Key = Key, Down = Down });
+        public void OnKey(NkKeys key, bool down) {
+            Events.Enqueue(new NuklearEvent() { EvtType = NuklearEvent.EventType.KeyboardKey, Key = key, Down = down });
         }
 
         public void ForceUpdate() {
@@ -574,33 +556,33 @@ namespace Nuklear.NET {
     }
 
     public unsafe abstract class NuklearDeviceTex<T> : NuklearDevice {
-        List<T> Textures;
+        List<T> _textures;
 
         public NuklearDeviceTex() {
-            Textures = new List<T>();
-            Textures.Add(default(T)); // Start indices at 1
+            _textures = new List<T>();
+            _textures.Add(default(T)); // Start indices at 1
         }
 
-        public int CreateTextureHandle(T Tex) {
-            Textures.Add(Tex);
-            return Textures.Count - 1;
+        public int CreateTextureHandle(T tex) {
+            _textures.Add(tex);
+            return _textures.Count - 1;
         }
 
-        public T GetTexture(int Handle) {
-            return Textures[Handle];
+        public T GetTexture(int handle) {
+            return _textures[handle];
         }
 
-        public sealed override int CreateTextureHandle(int W, int H, IntPtr Data) {
-            T Tex = CreateTexture(W, H, Data);
-            return CreateTextureHandle(Tex);
+        public sealed override int CreateTextureHandle(int w, int h, IntPtr data) {
+            T tex = CreateTexture(w, h, data);
+            return CreateTextureHandle(tex);
         }
 
-        public sealed override void Render(NkHandle Userdata, int Texture, NkRect ClipRect, uint Offset, uint Count) {
-            Render(Userdata, GetTexture(Texture), ClipRect, Offset, Count);
+        public sealed override void Render(NkHandle userdata, int texture, NkRect clipRect, uint offset, uint count) {
+            Render(userdata, GetTexture(texture), clipRect, offset, count);
         }
 
-        public abstract T CreateTexture(int W, int H, IntPtr Data);
+        public abstract T CreateTexture(int w, int h, IntPtr data);
 
-        public abstract void Render(NkHandle Userdata, T Texture, NkRect ClipRect, uint Offset, uint Count);
+        public abstract void Render(NkHandle userdata, T texture, NkRect clipRect, uint offset, uint count);
     }
 }
